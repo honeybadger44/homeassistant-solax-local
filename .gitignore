@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+.coverage
+htmlcov/
+.idea/
+.vscode/
+config.local.*
+secrets.*
+

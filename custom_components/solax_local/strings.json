@@ -1,0 +1,68 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to a SolaX Pocket WiFi dongle",
+        "description": "The dongle must be reachable directly from Home Assistant. The local password is normally the registration number printed on its label.",
+        "data": {
+          "host": "Host or IP address",
+          "password": "Dongle local password"
+        },
+        "data_description": {
+          "host": "For example, 192.168.1.100. Do not include a path.",
+          "password": "Often starts with S and is printed as the dongle registration number."
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This inverter is already configured."
+    },
+    "error": {
+      "cannot_connect": "Could not read valid data from the dongle. Check its address and network access.",
+      "invalid_auth": "The dongle rejected the local password.",
+      "unsupported_device": "This inverter response layout has not been verified for safe local control.",
+      "unknown": "An unexpected error occurred. Check the logs."
+    }
+  },
+  "entity": {
+    "number": {
+      "output_limit": {
+        "name": "Output limit"
+      }
+    },
+    "sensor": {
+      "ac_power": { "name": "Inverter output power" },
+      "pv_power": { "name": "PV power" },
+      "pv1_power": { "name": "PV1 power" },
+      "pv2_power": { "name": "PV2 power" },
+      "ac_voltage": { "name": "AC voltage" },
+      "ac_current": { "name": "AC current" },
+      "ac_frequency": { "name": "AC frequency" },
+      "today_yield": { "name": "Energy today" },
+      "total_yield": { "name": "Total energy" },
+      "run_mode": {
+        "name": "Operating state",
+        "state": {
+          "waiting": "Waiting",
+          "checking": "Checking",
+          "normal": "Normal",
+          "fault": "Fault",
+          "permanent_fault": "Permanent fault",
+          "updating": "Updating",
+          "unknown": "Unknown"
+        }
+      },
+      "export_mode": {
+        "name": "Export-control mode",
+        "state": {
+          "disabled": "Disabled",
+          "meter": "Meter",
+          "ct": "CT",
+          "unknown": "Unknown"
+        }
+      },
+      "export_limit": { "name": "Export-control user value" },
+      "output_limit_readback": { "name": "Output-limit readback" }
+    }
+  }
+}
