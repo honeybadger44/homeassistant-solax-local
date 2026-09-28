@@ -26,6 +26,13 @@ compliance and have not been safely verified for automation.
 
 The write path checks the dongle acknowledgement and immediately reads the
 setting back. Home Assistant reports an error if the readback does not match.
+The integration keeps maintenance mode unlocked with PIN `2014`: it unlocks
+on startup, refreshes the unlock every five minutes, and unlocks immediately
+before every output-limit write. This is needed because the inverter can
+relock its settings after a restart or at the beginning of a new solar day.
+The output-limit number is unavailable while the inverter reports a sleeping,
+checking, updating, or fault state because the inverter rejects setting writes
+outside Normal mode. Read-only telemetry remains available overnight.
 
 ## Supported hardware
 
@@ -86,4 +93,3 @@ The inverter retains the last output limit. An automation should explicitly
 restore 100% when curtailment is no longer needed, and should include sensible
 minimum/maximum limits and stale-sensor handling. This integration does not
 change the inverter's certified grid-protection or export-control settings.
-

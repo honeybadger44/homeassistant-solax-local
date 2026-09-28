@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
@@ -11,10 +12,16 @@ from urllib.parse import quote
 from aiohttp import ClientError, ClientResponseError, ClientSession
 
 from .const import (
+    MAINTENANCE_UNLOCK_INTERVAL,
+    MAINTENANCE_UNLOCK_PIN,
+    MAINTENANCE_UNLOCK_REGISTER,
+    MAINTENANCE_UNLOCK_SETTLE_SECONDS,
     OUTPUT_LIMIT_REGISTER,
     SUPPORTED_DEVICE_TYPE,
     SUPPORTED_SERIAL_PREFIXES,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class SolaxError(Exception):
@@ -95,6 +102,14 @@ def encode_solax_form(values: dict[str, object]) -> str:
     return "&".join(f"{quote(key)}={value}" for key, value in values.items())
 
 
+def build_register_command(register: int, value: int) -> str:
+    """Build the exact local setReg JSON accepted by this inverter."""
+    return json.dumps(
+        {"num": 1, "Data": [{"reg": register, "val": str(value)}]},
+        separators=(",", ":"),
+    )
+
+
 def parse_snapshot(realtime: Any, settings: Any) -> SolaxSnapshot:
     """Validate and map the verified X1-BOOST-5K-G4 response layout."""
     if not isinstance(realtime, dict):
@@ -154,6 +169,7 @@ class SolaxLocalApi:
         self._request_lock = asyncio.Lock()
         self._write_lock = asyncio.Lock()
         self._last_request_at = 0.0
+        self._last_unlock_attempt_at = 0.0
 
     async def _async_pace_requests(self) -> None:
         """Avoid overrunning the dongle's small embedded HTTP server."""
@@ -209,7 +225,7 @@ class SolaxLocalApi:
                 try:
                     async with self._session.post(
                         f"{self._base_url}/",
-                        data=form,
+                        data=form.encode(),
                         headers={
                             "Connection": "close",
                             "Content-Type": "application/x-www-form-urlencoded",
@@ -249,7 +265,55 @@ class SolaxLocalApi:
             settings = json.loads(settings_text)
         except json.JSONDecodeError as err:
             raise SolaxProtocolError("Dongle returned invalid JSON") from err
-        return parse_snapshot(realtime, settings)
+        snapshot = parse_snapshot(realtime, settings)
+
+        # Maintenance access is transient and its LockMode setting does not
+        # reflect whether register writes are currently authorised. Refresh
+        # it periodically, but never sacrifice otherwise valid telemetry if
+        # the keepalive itself fails.
+        try:
+            await self.async_ensure_unlocked()
+        except SolaxError as err:
+            _LOGGER.warning("Could not refresh SolaX maintenance unlock: %s", err)
+
+        return snapshot
+
+    async def _async_write_register(self, register: int, value: int) -> str:
+        """Write one local HTTP register and return its raw acknowledgement."""
+        return await self._async_operation(
+            "setReg", data=build_register_command(register, value)
+        )
+
+    async def _async_unlock_without_lock(self) -> None:
+        """Unlock maintenance writes while the command lock is already held."""
+        self._last_unlock_attempt_at = asyncio.get_running_loop().time()
+        response = await self._async_write_register(
+            MAINTENANCE_UNLOCK_REGISTER, MAINTENANCE_UNLOCK_PIN
+        )
+        if not response.startswith("Y"):
+            raise SolaxProtocolError(
+                f"Dongle did not acknowledge maintenance unlock: {response!r}"
+            )
+
+    async def async_ensure_unlocked(self, *, force: bool = False) -> None:
+        """Keep the inverter in maintenance-unlocked mode."""
+        now = asyncio.get_running_loop().time()
+        if (
+            not force
+            and now - self._last_unlock_attempt_at
+            < MAINTENANCE_UNLOCK_INTERVAL.total_seconds()
+        ):
+            return
+
+        async with self._write_lock:
+            now = asyncio.get_running_loop().time()
+            if (
+                not force
+                and now - self._last_unlock_attempt_at
+                < MAINTENANCE_UNLOCK_INTERVAL.total_seconds()
+            ):
+                return
+            await self._async_unlock_without_lock()
 
     async def async_set_output_limit(self, percent: int) -> None:
         """Set the verified whole-inverter output percentage register."""
@@ -258,15 +322,15 @@ class SolaxLocalApi:
         if not 0 <= percent <= 100:
             raise ValueError("Output limit must be between 0 and 100 percent")
 
-        command = json.dumps(
-            {
-                "num": 1,
-                "Data": [{"reg": OUTPUT_LIMIT_REGISTER, "val": str(percent)}],
-            },
-            separators=(",", ":"),
-        )
         async with self._write_lock:
-            response = await self._async_operation("setReg", data=command)
+            # The inverter relocks maintenance settings after restart and may
+            # do so at the start of a new solar day. Always unlock immediately
+            # before the requested control write.
+            await self._async_unlock_without_lock()
+            await asyncio.sleep(MAINTENANCE_UNLOCK_SETTLE_SECONDS)
+            response = await self._async_write_register(
+                OUTPUT_LIMIT_REGISTER, percent
+            )
         if not response.startswith("Y"):
             raise SolaxProtocolError(
                 f"Dongle did not acknowledge the output-limit command: {response!r}"

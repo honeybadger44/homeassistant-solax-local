@@ -24,6 +24,7 @@ for module_name in ("const", "api"):
     spec.loader.exec_module(module)
 
 api = sys.modules["custom_components.solax_local.api"]
+build_register_command = api.build_register_command
 encode_solax_form = api.encode_solax_form
 parse_snapshot = api.parse_snapshot
 
@@ -77,3 +78,10 @@ def test_setreg_form_keeps_json_literal() -> None:
     )
     assert encoded == f"optType=setReg&pwd=example&data={command}"
     assert "%7B" not in encoded
+
+
+def test_maintenance_unlock_command() -> None:
+    """Unlock maintenance mode using the verified X1 G4 command."""
+    assert build_register_command(0, 2014) == (
+        '{"num":1,"Data":[{"reg":0,"val":"2014"}]}'
+    )

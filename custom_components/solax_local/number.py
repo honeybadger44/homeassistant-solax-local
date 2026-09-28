@@ -10,7 +10,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .api import SolaxError
-from .const import DOMAIN
+from .const import DOMAIN, RUN_MODE_NORMAL
 from .coordinator import SolaxDataUpdateCoordinator
 from .entity import SolaxEntity
 
@@ -36,8 +36,21 @@ class SolaxOutputLimitNumber(SolaxEntity, NumberEntity):
         """Return the inverter's current readback, not an assumed value."""
         return self.coordinator.data.output_limit_percent
 
+    @property
+    def available(self) -> bool:
+        """Only offer control while the inverter can accept setting writes."""
+        return (
+            super().available
+            and self.coordinator.data.run_mode == RUN_MODE_NORMAL
+        )
+
     async def async_set_native_value(self, value: float) -> None:
         """Write and then verify the whole-inverter output cap."""
+        if self.coordinator.data.run_mode != RUN_MODE_NORMAL:
+            raise HomeAssistantError(
+                "The SolaX inverter is not in Normal mode; "
+                "its output limit cannot be changed while it is asleep"
+            )
         percent = round(value)
         try:
             await self.coordinator.api.async_set_output_limit(percent)
@@ -65,4 +78,3 @@ async def async_setup_entry(
     """Set up the SolaX output-limit number."""
     coordinator: SolaxDataUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
     async_add_entities([SolaxOutputLimitNumber(coordinator)])
-
